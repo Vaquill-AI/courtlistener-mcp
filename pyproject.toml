@@ -24,6 +24,7 @@ dependencies = [
   "pydantic-settings>=2.0.0",
   "psutil>=7.0.0",
   "citeurl[full]>=11.5.1",
+  "markdown>=3.0",
 ]
 
 [project.urls]
