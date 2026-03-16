@@ -9,7 +9,6 @@ docs/
 
 # Specific configuration files
 ruff.toml
-uv.lock
 
 Other/
 
@@ -230,4 +229,3 @@ local/
 
 .github
 .ruff_cache
-uv.lock
