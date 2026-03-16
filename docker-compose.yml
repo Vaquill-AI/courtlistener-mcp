@@ -1,0 +1,28 @@
+services:
+  # Production service - HTTP transport for network access
+  court-listener-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: court-listener-mcp:latest
+    container_name: court-listener-mcp-server
+    command: python -m app
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - COURTLISTENER_LOG_LEVEL=INFO
+    restart: unless-stopped
+    networks:
+      - mcp-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.connect(('localhost', 8000)); s.close()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+networks:
+  mcp-network:
+    driver: bridge
