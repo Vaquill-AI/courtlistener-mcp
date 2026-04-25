@@ -1,160 +1,189 @@
 # CourtListener MCP Server
 
-A Model Context Protocol (MCP) server that provides LLM-friendly access to the CourtListener legal database and the Electronic Code of Federal Regulations (eCFR) through the official CourtListener API v4. This server enables searching and retrieving legal opinions, court cases, judges, legal documents, and federal regulations for precise legal research and citation verification.
+A [Model Context Protocol](https://modelcontextprotocol.io) server that gives
+AI assistants access to the [CourtListener](https://www.courtlistener.com)
+legal database (US federal + state court opinions, dockets, RECAP filings,
+PACER data, oral arguments, judges) and the
+[Electronic Code of Federal Regulations](https://www.ecfr.gov) via the
+official CourtListener API v4.
 
-## 🎯 Purpose
+Use it with Claude Desktop, Claude Code, Cursor, VS Code, Windsurf, ChatGPT
+Desktop, or any MCP-compatible client.
 
-The CourtListener MCP Server provides comprehensive access to **legal case data, court opinions, and federal regulations** through the extensive CourtListener and eCFR databases. CourtListener contains millions of legal opinions from federal and state courts, while eCFR provides up-to-date federal regulations.
+> **Forked from** [Travis-Prall/court-listener-mcp](https://github.com/Travis-Prall/court-listener-mcp). This fork adds a hosted endpoint, bring-your-own-key (BYOK) auth, a `/health` route, and Dockerfile hardening for production hosting. Tools and search semantics are unchanged.
 
-## 📋 Key Advantages
+## Use the hosted endpoint (no install)
 
-- **Comprehensive Legal Database:**
-  - Access to millions of court opinions and legal decisions
-  - Federal and state court coverage
-  - Real-time updates from court systems
-- **Full Text Content:**
-  - Complete opinion text for citation verification
-  - Structured legal document organization
-  - Rich metadata including judges, courts, and dates
-- **Regulatory Research:**
-  - Search and retrieve current federal regulations
-  - Validate regulatory citations and references
-- **Legal Research:**
-  - Search by judge, court, case name, or content
-  - Verify exact legal language and precedents
-  - Validate legal citations and references
+The Vaquill team runs a public instance for the community:
 
-## 🛠️ Available MCP Tools
-
-The CourtListener MCP Server provides these production-ready tools (see [app/README.md](app/README.md) for full details and parameters):
-
-- **Opinion & Case Search:**
-  - `search_opinions` — Search legal opinions and court decisions
-  - `search_dockets` — Search court cases and dockets
-  - `search_dockets_with_documents` — Search dockets with nested documents
-  - `search_recap_documents` — Search RECAP filing documents
-  - `search_audio` — Search oral argument audio
-  - `search_people` — Search judges and legal professionals
-- **Entity Retrieval:**
-  - `get_opinion`, `get_docket`, `get_audio`, `get_court`, `get_person`, `get_cluster`
-- **Citation & Regulation Tools:**
-  - `lookup_citation`, `batch_lookup_citations`, `verify_citation_format`, `parse_citation_with_citeurl`, `extract_citations_from_text`, `enhanced_citation_lookup`
-  - `list_titles`, `list_agencies`, `search_regulations`, `list_all_corrections`, `list_corrections_by_title`, `get_search_suggestions`, `get_search_summary`, `get_title_search_counts`, `get_daily_search_counts`, `get_ancestry`, `get_title_structure`, `get_source_xml`, `get_source_json`
-- **System & Health:**
-  - `status`, `get_api_status`, `health_check`
-
-See [app/README.md](app/README.md) for a full reference of all tools, parameters, and usage examples.
-
-## 📦 Installation
-
-### Prerequisites
-
-- Python 3.12+
-- [uv](https://github.com/astral-sh/uv) for dependency management
-- Internet connection for CourtListener API access
-
-### Install with uv
-
-```bash
-# Clone the repository
- git clone <repository-url>
- cd CourtListener
-
-# Install dependencies
- uv sync
-
-# Activate the environment (optional)
- uv shell
+```
+https://courtlistener-mcp.vaquill.ai/mcp/
 ```
 
-### Environment Configuration
+You bring your own free CourtListener token from
+[courtlistener.com/help/api/rest/](https://www.courtlistener.com/help/api/rest/),
+the server forwards it. We never see or store your key.
 
-Create a `.env` file in the project root:
+### Claude Desktop / Claude Code
 
-```bash
-COURTLISTENER_BASE_URL=https://www.courtlistener.com/api/rest/v4/
-COURT_LISTENER_TIMEOUT=30
-LOG_LEVEL=INFO
-RATE_LIMIT_REQUESTS=10
-RATE_LIMIT_PERIOD=60
-DEBUG=false
-MCP_PORT=8765
-MCP_DEV_PORT=8766
+`~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or
+`%APPDATA%\Claude\claude_desktop_config.json` (Windows):
+
+```json
+{
+  "mcpServers": {
+    "courtlistener": {
+      "url": "https://courtlistener-mcp.vaquill.ai/mcp/",
+      "headers": {
+        "X-CourtListener-Token": "YOUR_COURTLISTENER_TOKEN"
+      }
+    }
+  }
+}
 ```
 
-### Running the Server
+### Cursor
 
-The server now runs with streamable-http transport by default:
+`.cursor/mcp.json`:
 
-```bash
-uv run python -m app.server
+```json
+{
+  "mcpServers": {
+    "courtlistener": {
+      "url": "https://courtlistener-mcp.vaquill.ai/mcp/",
+      "headers": { "X-CourtListener-Token": "YOUR_COURTLISTENER_TOKEN" }
+    }
+  }
+}
 ```
 
-This will start the server at:
+### VS Code (GitHub Copilot Chat)
 
-- **Host**: `0.0.0.0` (accessible from external connections)
-- **Port**: `8000`
-- **Endpoint**: `http://localhost:8000/mcp/`
+`.vscode/mcp.json`:
 
-Or use the VS Code task: **Run MCP Server**
-
-#### Connecting to the Server
-
-When using the streamable-http transport, clients can connect to the server using:
-
-```python
-from fastmcp import Client
-
-async with Client("http://localhost:8000/mcp/") as client:
-    result = await client.call_tool("status")
-    print(result)
+```json
+{
+  "servers": {
+    "courtlistener": {
+      "type": "http",
+      "url": "https://courtlistener-mcp.vaquill.ai/mcp/",
+      "headers": { "X-CourtListener-Token": "YOUR_COURTLISTENER_TOKEN" }
+    }
+  }
+}
 ```
 
-## 💡 Usage Examples
+### Claude Web (custom connector)
 
-See [app/README.md](app/README.md) for detailed tool usage and examples, including search, citation, and regulatory queries.
+Settings → Connectors → Add custom connector → paste the URL and add
+`X-CourtListener-Token` as a header. Workspace owners only.
 
-## 🐳 Docker Setup
+### Windsurf, Continue, etc.
+
+Any client that supports MCP streamable HTTP with custom headers works.
+For stdio-only clients, run the server locally (see below) or proxy with
+[`mcp-remote`](https://www.npmjs.com/package/mcp-remote).
+
+## Tools
+
+| Group | Tools |
+|---|---|
+| Search | `search_opinions`, `search_dockets`, `search_dockets_with_documents`, `search_recap_documents`, `search_audio`, `search_people` |
+| Get | `get_opinion`, `get_docket`, `get_audio`, `get_court`, `get_person`, `get_cluster` |
+| Citation | `lookup_citation`, `batch_lookup_citations`, `verify_citation_format`, `parse_citation_with_citeurl`, `extract_citations_from_text`, `enhanced_citation_lookup` |
+| eCFR | `list_titles`, `list_agencies`, `search_regulations`, `list_all_corrections`, `list_corrections_by_title`, `get_search_suggestions`, `get_search_summary`, `get_title_search_counts`, `get_daily_search_counts`, `get_ancestry`, `get_title_structure`, `get_source_xml`, `get_source_json` |
+| System | `status`, `get_api_status`, `health_check` |
+
+See [app/README.md](app/README.md) for parameter details.
+
+## Authentication
+
+Two modes, in priority order:
+
+1. **Per-request header (BYOK)** — preferred for hosted / shared deployments.
+   Send the user's CourtListener key on every MCP request:
+   - `X-CourtListener-Token: <key>` (preferred), or
+   - `Authorization: Token <key>` (CourtListener's native scheme — only works
+     if the MCP server itself isn't already gated by `Authorization`).
+2. **Server env fallback** — set `COURT_LISTENER_API_KEY` on the server.
+   Used when no per-request header is supplied. Leave **unset** on public
+   instances to force BYOK and avoid burning the operator's quota.
+
+If neither is provided, tools return a `ValueError` with a clear message.
+
+## Self-host
+
+### Docker
 
 ```bash
-# Production
- docker-compose up -d
-# Development with hot reload
- docker-compose --profile dev up --build
+git clone https://github.com/Vaquill-AI/courtlistener-mcp.git
+cd courtlistener-mcp
+cp .env.example .env  # optionally set COURT_LISTENER_API_KEY for single-tenant
+docker compose up -d
+# server at http://localhost:8000/mcp/
 ```
 
-## 🧪 Testing
+### Python (uv)
 
 ```bash
+uv sync
+uv run python -m app --transport http
+```
+
+### Stdio (local CLI integration)
+
+```bash
+uv run python -m app --transport stdio
+```
+
+Add to Claude Desktop:
+
+```json
+{
+  "mcpServers": {
+    "courtlistener-local": {
+      "command": "uv",
+      "args": ["run", "--directory", "/abs/path/to/courtlistener-mcp", "python", "-m", "app", "--transport", "stdio"],
+      "env": { "COURT_LISTENER_API_KEY": "your_token" }
+    }
+  }
+}
+```
+
+## Configuration
+
+| Var | Required | Default | Notes |
+|---|---|---|---|
+| `COURT_LISTENER_API_KEY` | Optional* | — | Fallback when no per-request header. Leave unset on public servers. |
+| `COURTLISTENER_BASE_URL` | No | `https://www.courtlistener.com/api/rest/v4/` | |
+| `COURTLISTENER_TIMEOUT` | No | `30` | seconds |
+| `MCP_TRANSPORT` | No | `stdio` | `stdio` \| `http` \| `sse` |
+| `MCP_PORT` | No | `8000` | http/sse only |
+| `HOST` | No | `0.0.0.0` | http/sse only |
+
+\* Required only if running in single-tenant mode without BYOK.
+
+## Health check
+
+```bash
+curl https://courtlistener-mcp.vaquill.ai/health
+# {"status":"healthy","service":"courtlistener-mcp","version":"..."}
+```
+
+## Development
+
+```bash
+uv sync --dev
 uv run pytest
-uv run pytest --cov=app --cov-report=term-missing
-```
-
-See [tests/README.md](tests/README.md) for test suite details, coverage, and troubleshooting.
-
-## 🔧 Development
-
-```bash
-uv run ruff format .
-uv run ruff check .
+uv run ruff format . && uv run ruff check .
 uv run mypy app/
-uv run pip-audit
 ```
 
-## 🚨 Troubleshooting
+## Credits & License
 
-See [app/README.md](app/README.md) and [tests/README.md](tests/README.md) for troubleshooting and advanced usage.
+- Original implementation: [Travis-Prall/court-listener-mcp](https://github.com/Travis-Prall/court-listener-mcp)
+- Hosted by: [Vaquill](https://vaquill.ai) — courtlistener-mcp.vaquill.ai
+- License: MIT (see [LICENSE](LICENSE))
 
-## 📚 Documentation
-
-- [Source Code Documentation](app/README.md)
-- [Test Documentation](tests/README.md)
-- [Project Context](context.json)
-- [CourtListener API Documentation](https://www.courtlistener.com/api/rest/v4/)
-- [eCFR API Documentation](https://www.ecfr.gov/developers/documentation/api/v1)
-- [FastMCP Framework](https://github.com/jlowin/fastmcp)
-- [Model Context Protocol](https://spec.modelcontextprotocol.io/)
-
----
-
-**Ready to use!** The CourtListener MCP Server provides production-ready access to federal regulations and legal data through 20+ comprehensive MCP tools.
+CourtListener data is provided by the [Free Law Project](https://free.law/)
+under their respective terms.

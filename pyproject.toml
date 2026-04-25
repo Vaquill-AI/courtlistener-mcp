@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Model Context Protocol server providing LLM-friendly access to legal cases and court data through the CourtListener API v4"
 authors = [{ name = "Travis-Prall", email = "smart@travisprall.com" }]
 readme = "README.md"
-license = { text = "" }
+license = { text = "MIT" }
 requires-python = ">=3.12.0"
 keywords = ["mcp", "courtlistener", "legal", "cases", "opinions", "api"]
 classifiers = [

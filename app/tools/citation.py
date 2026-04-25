@@ -63,7 +63,7 @@ async def lookup_citation(
     """
     await ctx.info(f"Looking up citation: {citation}")
 
-    headers = get_auth_headers()
+    headers = get_auth_headers(ctx)
 
     try:
         async with get_http_client(ctx) as http_client:
@@ -127,7 +127,7 @@ async def batch_lookup_citations(
     """
     await ctx.info(f"Looking up {len(citations)} citations")
 
-    headers = get_auth_headers()
+    headers = get_auth_headers(ctx)
 
     try:
         # Use POST with form data for the citation text
@@ -517,7 +517,7 @@ async def enhanced_citation_lookup(
     # Then, lookup in CourtListener if requested and API key available
     if include_courtlistener:
         try:
-            headers = get_auth_headers()
+            headers = get_auth_headers(ctx)
             async with get_http_client(ctx) as http_client:
                 response = await http_client.post(
                     f"{config.courtlistener_base_url}citation-lookup/",

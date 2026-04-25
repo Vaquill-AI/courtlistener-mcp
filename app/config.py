@@ -48,10 +48,11 @@ config = Config()
 
 
 def get_api_key() -> str | None:
-    """Get the CourtListener API key at runtime.
+    """Get the server-configured CourtListener API key.
 
-    This function checks the environment variable at call time rather than
-    at module import time, allowing for dynamic configuration changes.
+    Checks the environment variable at call time, falling back to the
+    .env-loaded config. Used as the fallback when no per-request user key
+    is supplied.
 
     Returns:
         The API key if set, None otherwise.
@@ -65,22 +66,62 @@ def get_api_key() -> str | None:
     return config.courtlistener_api_key
 
 
-def get_auth_headers() -> dict[str, str]:
-    """Get authorization headers for CourtListener API requests.
+def _get_user_api_key_from_ctx(ctx: "Context | None") -> str | None:
+    """Extract a user-supplied CourtListener token from the inbound MCP request.
 
-    This function retrieves the API key and constructs the authorization
-    headers required for CourtListener API calls.
+    Supports two header conventions for HTTP/SSE transports:
+    1. ``X-CourtListener-Token: <key>`` (preferred, no collision with MCP auth)
+    2. ``Authorization: Token <key>`` (CourtListener's native scheme)
+
+    Returns ``None`` for stdio transport or when no header is present.
+    """
+    if ctx is None:
+        return None
+    try:
+        request = getattr(ctx.request_context, "request", None)
+        if request is None:
+            return None
+        headers = getattr(request, "headers", None)
+        if headers is None:
+            return None
+        token = headers.get("x-courtlistener-token")
+        if token:
+            return token.strip() or None
+        auth = headers.get("authorization", "")
+        if auth.lower().startswith("token "):
+            return auth[6:].strip() or None
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.debug(f"Could not read user token from request: {exc}")
+    return None
+
+
+def get_auth_headers(ctx: "Context | None" = None) -> dict[str, str]:
+    """Get authorization headers for a CourtListener API request.
+
+    Priority order:
+    1. User-supplied key from the inbound MCP request headers (BYOK).
+       This makes the hosted MCP usable by anyone with their own key
+       without burning the operator's quota.
+    2. Server-side ``COURT_LISTENER_API_KEY`` env var (single-tenant
+       fallback for self-hosted deployments).
+
+    Args:
+        ctx: Optional FastMCP context. When provided, headers from the
+            HTTP request are inspected for a user-supplied token. Pass
+            ``None`` (or omit) to force the env-only path.
 
     Returns:
-        Dictionary containing the Authorization header.
+        Dictionary containing the ``Authorization`` header for CourtListener.
 
     Raises:
-        ValueError: If no API key is configured.
-
+        ValueError: If neither a user header nor a server env key is set.
     """
-    api_key = get_api_key()
+    api_key = _get_user_api_key_from_ctx(ctx) or get_api_key()
     if not api_key:
-        raise ValueError("COURT_LISTENER_API_KEY not found in environment variables")
+        raise ValueError(
+            "No CourtListener API key. Send 'X-CourtListener-Token: <key>' "
+            "in your MCP request, or set COURT_LISTENER_API_KEY on the server."
+        )
     return {"Authorization": f"Token {api_key}"}
 
 

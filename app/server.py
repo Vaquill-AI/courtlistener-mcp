@@ -108,6 +108,23 @@ mcp: FastMCP[Any] = FastMCP(
 )
 
 
+@mcp.custom_route("/health", methods=["GET"])
+async def health(_request: Any) -> Any:
+    """Liveness probe used by Docker/Dokploy healthchecks.
+
+    Returns 200 with a small JSON body. Does not call CourtListener.
+    """
+    from starlette.responses import JSONResponse
+
+    return JSONResponse(
+        {
+            "status": "healthy",
+            "service": "courtlistener-mcp",
+            "version": get_version(),
+        }
+    )
+
+
 @mcp.tool()
 def status() -> dict[str, Any]:
     """Check the status of the CourtListener MCP server.

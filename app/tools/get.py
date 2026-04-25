@@ -43,7 +43,7 @@ async def _fetch_resource(
     """
     await ctx.info(f"Getting {resource_type} with ID: {resource_id}")
 
-    headers = get_auth_headers()
+    headers = get_auth_headers(ctx)
 
     try:
         async with get_http_client(ctx) as http_client:

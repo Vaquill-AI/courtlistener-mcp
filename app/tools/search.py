@@ -50,7 +50,7 @@ async def _search_courtlistener(
     """
     await ctx.info(f"Searching {resource_type} with query: {q}")
 
-    headers = get_auth_headers()
+    headers = get_auth_headers(ctx)
 
     params: dict[str, str | int] = {
         "q": q,
