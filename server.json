@@ -1,0 +1,26 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.Vaquill-AI/courtlistener-mcp",
+  "title": "CourtListener",
+  "description": "MCP server for the CourtListener legal database (US federal and state court opinions, dockets, RECAP filings, PACER data, oral arguments, judges) plus the Electronic Code of Federal Regulations (eCFR). MIT-licensed. Bring-your-own free CourtListener token; the server never stores keys.",
+  "version": "0.1.0",
+  "repository": {
+    "url": "https://github.com/Vaquill-AI/courtlistener-mcp",
+    "source": "github"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://courtlistener-mcp.vaquill.ai/mcp/",
+      "headers": [
+        {
+          "name": "X-CourtListener-Token",
+          "description": "Your free CourtListener API token from https://www.courtlistener.com/help/api/rest/. The server never stores your key.",
+          "isRequired": true,
+          "isSecret": true,
+          "format": "string"
+        }
+      ]
+    }
+  ]
+}
