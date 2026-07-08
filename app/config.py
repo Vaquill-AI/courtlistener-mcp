@@ -48,6 +48,14 @@ class Config(BaseSettings):
     rate_limit_rps: float = 15.0
     rate_limit_burst: int = 40
 
+    # HTTP transport security (DNS-rebinding protection). FastMCP 3 rejects any
+    # request whose Host/Origin isn't localhost with 421 Misdirected Request.
+    # This server is designed to run publicly behind a reverse proxy, so the
+    # default allows all; override to restrict, e.g.
+    # MCP_ALLOWED_HOSTS='["courtlistener-mcp.example.com"]'.
+    mcp_allowed_hosts: list[str] = ["*"]
+    mcp_allowed_origins: list[str] = ["*"]
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",

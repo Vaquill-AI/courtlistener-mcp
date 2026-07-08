@@ -11,6 +11,7 @@ from pathlib import Path
 import sys
 from typing import Any, Literal
 
+import fastmcp
 from fastmcp import FastMCP
 from fastmcp.server.middleware.rate_limiting import RateLimitingMiddleware
 import httpx
@@ -334,6 +335,17 @@ async def run_server(
         log_level: Logging level.
 
     """
+    # FastMCP 3 rejects non-localhost Host/Origin with 421 (DNS-rebinding
+    # protection). This server runs publicly behind a reverse proxy, so apply
+    # the configured allow-lists for network transports.
+    if transport in ("http", "sse"):
+        fastmcp.settings.http_allowed_hosts = config.mcp_allowed_hosts
+        fastmcp.settings.http_allowed_origins = config.mcp_allowed_origins
+        logger.info(
+            f"HTTP transport security: allowed_hosts={config.mcp_allowed_hosts}, "
+            f"allowed_origins={config.mcp_allowed_origins}"
+        )
+
     if transport == "stdio":
         logger.info("Starting CourtListener MCP server with stdio transport")
         await mcp.run_async(transport="stdio")
