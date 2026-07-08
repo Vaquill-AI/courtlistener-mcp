@@ -30,8 +30,13 @@ citation_server: FastMCP[Any] = FastMCP(
     "Use this server for all citation-related tasks including validation, parsing, and data retrieval.",
 )
 
+# All citation tools are read-only. The ones that call the CourtListener API
+# are also open-world; the local citeurl parsers are deterministic.
+_READ_ONLY = {"readOnlyHint": True, "openWorldHint": True}
+_READ_ONLY_LOCAL = {"readOnlyHint": True, "openWorldHint": False}
 
-@citation_server.tool()
+
+@citation_server.tool(annotations=_READ_ONLY)
 async def lookup_citation(
     citation: Annotated[
         str,
@@ -96,7 +101,7 @@ async def lookup_citation(
         raise
 
 
-@citation_server.tool()
+@citation_server.tool(annotations=_READ_ONLY)
 async def batch_lookup_citations(
     citations: Annotated[
         list[str],
@@ -138,7 +143,8 @@ async def batch_lookup_citations(
                 f"{config.courtlistener_base_url}citation-lookup/",
                 headers=headers,
                 data={"text": citation_text},
-                timeout=config.courtlistener_timeout * 2,  # Longer timeout for batch requests
+                timeout=config.courtlistener_timeout
+                * 2,  # Longer timeout for batch requests
             )
             response.raise_for_status()
             data = response.json()
@@ -164,7 +170,7 @@ async def batch_lookup_citations(
         raise
 
 
-@citation_server.tool()
+@citation_server.tool(annotations=_READ_ONLY_LOCAL)
 async def verify_citation_format(
     citation: Annotated[
         str,
@@ -320,7 +326,7 @@ def _get_citator_singleton() -> Citator:
     return citator
 
 
-@citation_server.tool()
+@citation_server.tool(annotations=_READ_ONLY_LOCAL)
 async def parse_citation_with_citeurl(
     citation: Annotated[
         str,
@@ -389,7 +395,7 @@ async def parse_citation_with_citeurl(
         raise
 
 
-@citation_server.tool()
+@citation_server.tool(annotations=_READ_ONLY_LOCAL)
 async def extract_citations_from_text(
     text: Annotated[
         str,
@@ -445,7 +451,7 @@ async def extract_citations_from_text(
         raise
 
 
-@citation_server.tool()
+@citation_server.tool(annotations=_READ_ONLY)
 async def enhanced_citation_lookup(
     citation: Annotated[
         str,

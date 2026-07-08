@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 import httpx
 from loguru import logger
+from pydantic import Field
 from pydantic_settings import BaseSettings
 
 if TYPE_CHECKING:
@@ -32,8 +33,20 @@ class Config(BaseSettings):
 
     # CourtListener API
     courtlistener_base_url: str = "https://www.courtlistener.com/api/rest/v4/"
-    courtlistener_api_key: str | None = None
+    # Read from COURT_LISTENER_API_KEY (the name used everywhere else + in .env).
+    courtlistener_api_key: str | None = Field(
+        default=None, validation_alias="COURT_LISTENER_API_KEY"
+    )
     courtlistener_timeout: int = 30
+
+    # eCFR API (Electronic Code of Federal Regulations, ecfr.gov). No auth key.
+    ecfr_base_url: str = "https://www.ecfr.gov"
+
+    # Rate limiting (MCP-level, per client). Defense-in-depth against abuse of
+    # the public endpoint and to protect the upstream CourtListener quota.
+    rate_limit_enabled: bool = True
+    rate_limit_rps: float = 15.0
+    rate_limit_burst: int = 40
 
     model_config = {
         "env_file": ".env",
@@ -171,7 +184,9 @@ async def get_http_client(ctx: "Context") -> AsyncIterator[httpx.AsyncClient]:
             return
 
     # Fallback: create a temporary client and ensure it's closed
-    logger.debug("Creating fallback HTTP client (lifespan client unavailable or closed)")
+    logger.debug(
+        "Creating fallback HTTP client (lifespan client unavailable or closed)"
+    )
     client = httpx.AsyncClient(
         timeout=config.courtlistener_timeout,
         limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),

@@ -10,7 +10,17 @@ official CourtListener API v4.
 Use it with Claude Desktop, Claude Code, Cursor, VS Code, Windsurf, ChatGPT
 Desktop, or any MCP-compatible client.
 
-> **Forked from** [Travis-Prall/court-listener-mcp](https://github.com/Travis-Prall/court-listener-mcp). This fork adds a hosted endpoint, bring-your-own-key (BYOK) auth, a `/health` route, and Dockerfile hardening for production hosting. Tools and search semantics are unchanged.
+> **Forked from** [Travis-Prall/court-listener-mcp](https://github.com/Travis-Prall/court-listener-mcp). This fork adds a hosted endpoint, bring-your-own-key (BYOK) auth, a `/health` route, Dockerfile hardening, a full **eCFR** (federal regulations) tool suite, cursor pagination, per-client rate limiting, and read-only tool annotations. See the [changelog](#changelog) for details.
+
+### When to use this vs. the official server
+
+Free Law Project (who run CourtListener) host an official MCP at
+`https://mcp.courtlistener.com/` (OAuth, free with any CourtListener account) -
+see [their announcement](https://free.law/2026/05/12/courtlistener-is-now-available-inside-claude/).
+Prefer it if you want OAuth and the broadest CourtListener coverage. Use **this**
+server if you want: **eCFR federal-regulations tools** (the official server has
+none), simple **BYOK header** auth (no OAuth dance), or a self-hosted/embeddable
+Python server. The two are complementary.
 
 ## Use the hosted endpoint (no install)
 
@@ -86,15 +96,18 @@ For stdio-only clients, run the server locally (see below) or proxy with
 
 ## Tools
 
+34 tools across 4 groups (each group is namespaced). All are read-only.
+
 | Group | Tools |
 |---|---|
-| Search | `search_opinions`, `search_dockets`, `search_dockets_with_documents`, `search_recap_documents`, `search_audio`, `search_people` |
-| Get | `get_opinion`, `get_docket`, `get_audio`, `get_court`, `get_person`, `get_cluster` |
-| Citation | `lookup_citation`, `batch_lookup_citations`, `verify_citation_format`, `parse_citation_with_citeurl`, `extract_citations_from_text`, `enhanced_citation_lookup` |
-| eCFR | `list_titles`, `list_agencies`, `search_regulations`, `list_all_corrections`, `list_corrections_by_title`, `get_search_suggestions`, `get_search_summary`, `get_title_search_counts`, `get_daily_search_counts`, `get_ancestry`, `get_title_structure`, `get_source_xml`, `get_source_json` |
-| System | `status`, `get_api_status`, `health_check` |
+| Search (CourtListener) | `search_opinions`, `search_dockets`, `search_dockets_with_documents`, `search_recap_documents`, `search_audio`, `search_people` |
+| Get (CourtListener) | `get_opinion`, `get_docket`, `get_audio`, `get_court`, `get_person`, `get_cluster` |
+| Citation | `citation_lookup_citation`, `citation_batch_lookup_citations`, `citation_verify_citation_format`, `citation_parse_citation_with_citeurl`, `citation_extract_citations_from_text`, `citation_enhanced_citation_lookup` |
+| eCFR (federal regulations) | `ecfr_list_titles`, `ecfr_get_title_versions`, `ecfr_get_title_structure`, `ecfr_get_ancestry`, `ecfr_get_source_xml`, `ecfr_list_agencies`, `ecfr_list_all_corrections`, `ecfr_list_corrections_by_title`, `ecfr_search_regulations`, `ecfr_get_search_count`, `ecfr_get_search_summary`, `ecfr_get_title_search_counts`, `ecfr_get_daily_search_counts`, `ecfr_get_hierarchy_search_counts`, `ecfr_get_search_suggestions` |
+| System | `status` |
 
-See [app/README.md](app/README.md) for parameter details.
+Search tools accept a `cursor` param and return a `next_cursor` for pagination.
+See [app/README.md](app/README.md) for full parameter details.
 
 ## Authentication
 
@@ -160,6 +173,10 @@ Add to Claude Desktop:
 | `MCP_TRANSPORT` | No | `stdio` | `stdio` \| `http` \| `sse` |
 | `MCP_PORT` | No | `8000` | http/sse only |
 | `HOST` | No | `0.0.0.0` | http/sse only |
+| `ECFR_BASE_URL` | No | `https://www.ecfr.gov` | eCFR API base (no key required) |
+| `RATE_LIMIT_ENABLED` | No | `true` | Per-client MCP rate limiting |
+| `RATE_LIMIT_RPS` | No | `15` | Max requests/sec per client |
+| `RATE_LIMIT_BURST` | No | `40` | Burst capacity per client |
 
 \* Required only if running in single-tenant mode without BYOK.
 
@@ -179,6 +196,25 @@ uv run ruff format . && uv run ruff check .
 uv run mypy app/
 ```
 
+## Changelog
+
+### 0.2.0
+
+- **Added a full eCFR (federal regulations) tool suite** (15 tools): titles,
+  structure, versions, ancestry, source XML, agencies, corrections, and
+  full-text regulation search + analytics. This is the differentiator over
+  CourtListener-only servers.
+- **Fixed a validation crash**: optional search filters are now nullable
+  (`str | None`), so clients that send explicit JSON `null` no longer get a
+  `ValidationError` (previously broke `search_dockets` / `search_recap_documents`).
+- **Real pagination**: removed the no-op `hit` param; search tools now honor
+  `limit` and expose a `next_cursor` token plus an input `cursor`.
+- **Read-only tool annotations** on all tools (better client UX, no write prompts).
+- **Per-client rate limiting** middleware (configurable, on by default).
+- Migrated `import_server` → `mount` (FastMCP 3), fixed the API-key env-var
+  alias, refreshed project metadata, and got the test suite green
+  (unit tests mocked; live-API tests gated behind `RUN_INTEGRATION=1`).
+
 ## Credits & License
 
 - Original implementation: [Travis-Prall/court-listener-mcp](https://github.com/Travis-Prall/court-listener-mcp)
@@ -186,4 +222,4 @@ uv run mypy app/
 - License: MIT (see [LICENSE](LICENSE))
 
 CourtListener data is provided by the [Free Law Project](https://free.law/)
-under their respective terms.
+under their respective terms. eCFR data is from [ecfr.gov](https://www.ecfr.gov).

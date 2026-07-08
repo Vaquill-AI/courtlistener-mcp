@@ -3,7 +3,7 @@
   "name": "io.github.Vaquill-AI/courtlistener-mcp",
   "title": "CourtListener",
   "description": "MCP for CourtListener: US federal and state opinions, dockets, judges, plus eCFR regulations.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "repository": {
     "url": "https://github.com/Vaquill-AI/courtlistener-mcp",
     "source": "github"

@@ -12,13 +12,14 @@ import sys
 from typing import Any, Literal
 
 from fastmcp import FastMCP
+from fastmcp.server.middleware.rate_limiting import RateLimitingMiddleware
 import httpx
 from loguru import logger
 import psutil
 
 from app import __version__
 from app.config import config
-from app.tools import citation_server, get_server, search_server
+from app.tools import citation_server, ecfr_server, get_server, search_server
 
 
 @dataclass
@@ -60,6 +61,7 @@ async def app_lifespan(server: FastMCP[Any]) -> AsyncIterator[AppContext]:
     finally:
         logger.info("Closing shared HTTP client")
         await client.aclose()
+
 
 # Valid transport types
 TransportType = Literal["stdio", "http", "sse"]
@@ -151,7 +153,7 @@ def status() -> dict[str, Any]:
 
     # Build server info based on transport
     server_info: dict[str, Any] = {
-        "tools_available": ["search", "get", "citation"],
+        "tools_available": ["search", "get", "citation", "ecfr"],
         "transport": config.mcp_transport,
         "api_base": "https://www.courtlistener.com/api/rest/v4/",
     }
@@ -181,21 +183,40 @@ def status() -> dict[str, Any]:
     }
 
 
+def _register_middleware() -> None:
+    """Register MCP middleware (idempotent-safe; called once from setup())."""
+    if config.rate_limit_enabled:
+        mcp.add_middleware(
+            RateLimitingMiddleware(
+                max_requests_per_second=config.rate_limit_rps,
+                burst_capacity=config.rate_limit_burst,
+                global_limit=False,
+            )
+        )
+        logger.info(
+            f"Rate limiting enabled: {config.rate_limit_rps} req/s "
+            f"(burst {config.rate_limit_burst}), per-client"
+        )
+
+
 async def setup() -> None:
-    """Set up the server by importing subservers."""
+    """Set up the server by mounting subservers and middleware."""
     logger.info("Setting up CourtListener MCP server")
 
-    # Import search tools with prefix
-    await mcp.import_server(search_server, "search")
-    logger.info("Imported search server tools")
+    # Mount tool groups under their namespaces (import_server is deprecated).
+    mcp.mount(search_server, namespace="search")
+    logger.info("Mounted search server tools")
 
-    # Import get tools with prefix
-    await mcp.import_server(get_server, "get")
-    logger.info("Imported get server tools")
+    mcp.mount(get_server, namespace="get")
+    logger.info("Mounted get server tools")
 
-    # Import citation tools with prefix
-    await mcp.import_server(citation_server, "citation")
-    logger.info("Imported citation server tools")
+    mcp.mount(citation_server, namespace="citation")
+    logger.info("Mounted citation server tools")
+
+    mcp.mount(ecfr_server, namespace="ecfr")
+    logger.info("Mounted eCFR server tools")
+
+    _register_middleware()
 
     logger.info("Server setup complete")
 
@@ -337,7 +358,9 @@ async def run_server(
             log_level=log_level,
         )
     else:
-        raise ValueError(f"Invalid transport: {transport}. Must be one of {VALID_TRANSPORTS}")
+        raise ValueError(
+            f"Invalid transport: {transport}. Must be one of {VALID_TRANSPORTS}"
+        )
 
 
 def _is_broken_pipe_error(exc: BaseException) -> bool:
@@ -368,7 +391,9 @@ async def main() -> None:
 
     # Validate transport
     if transport not in VALID_TRANSPORTS:
-        logger.error(f"Invalid transport: {transport}. Must be one of {VALID_TRANSPORTS}")
+        logger.error(
+            f"Invalid transport: {transport}. Must be one of {VALID_TRANSPORTS}"
+        )
         sys.exit(1)
 
     logger.info(f"Server configuration: transport={transport}, log_level={log_level}")

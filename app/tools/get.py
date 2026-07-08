@@ -18,6 +18,9 @@ get_server: FastMCP[Any] = FastMCP(
     "Use this server when you have a specific ID and need complete details about a particular legal entity.",
 )
 
+# Read-only, open-world hints applied to every get tool.
+_READ_ONLY = {"readOnlyHint": True, "openWorldHint": True}
+
 
 async def _fetch_resource(
     ctx: Context,
@@ -63,7 +66,7 @@ async def _fetch_resource(
         raise
 
 
-@get_server.tool()
+@get_server.tool(annotations=_READ_ONLY)
 async def opinion(
     opinion_id: Annotated[str, Field(description="The opinion ID to retrieve")],
     ctx: Context,
@@ -72,7 +75,7 @@ async def opinion(
     return await _fetch_resource(ctx, "opinion", opinion_id, "opinions")
 
 
-@get_server.tool()
+@get_server.tool(annotations=_READ_ONLY)
 async def docket(
     docket_id: Annotated[str, Field(description="The docket ID to retrieve")],
     ctx: Context,
@@ -81,7 +84,7 @@ async def docket(
     return await _fetch_resource(ctx, "docket", docket_id, "dockets")
 
 
-@get_server.tool()
+@get_server.tool(annotations=_READ_ONLY)
 async def audio(
     audio_id: Annotated[str, Field(description="The audio recording ID to retrieve")],
     ctx: Context,
@@ -90,7 +93,7 @@ async def audio(
     return await _fetch_resource(ctx, "audio", audio_id, "audio")
 
 
-@get_server.tool()
+@get_server.tool(annotations=_READ_ONLY)
 async def cluster(
     cluster_id: Annotated[str, Field(description="The opinion cluster ID to retrieve")],
     ctx: Context,
@@ -99,7 +102,7 @@ async def cluster(
     return await _fetch_resource(ctx, "cluster", cluster_id, "clusters")
 
 
-@get_server.tool()
+@get_server.tool(annotations=_READ_ONLY)
 async def person(
     person_id: Annotated[str, Field(description="The person (judge) ID to retrieve")],
     ctx: Context,
@@ -108,7 +111,7 @@ async def person(
     return await _fetch_resource(ctx, "person", person_id, "people")
 
 
-@get_server.tool()
+@get_server.tool(annotations=_READ_ONLY)
 async def court(
     court_id: Annotated[
         str, Field(description="The court ID to retrieve (e.g., 'scotus', 'ca9')")

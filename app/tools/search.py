@@ -1,6 +1,7 @@
 """Search tools for CourtListener MCP server."""
 
 from typing import Annotated, Any
+from urllib.parse import parse_qs, urlparse
 
 from fastmcp import Context, FastMCP
 import httpx
@@ -19,6 +20,33 @@ search_server: FastMCP[Any] = FastMCP(
     "Results are returned with detailed metadata and can be sorted by relevance or date.",
 )
 
+# Read-only, open-world hints applied to every search tool. These let MCP
+# clients skip write-confirmation prompts and treat results as external data.
+_READ_ONLY = {"readOnlyHint": True, "openWorldHint": True}
+
+
+def _extract_cursor(next_url: str | None) -> str | None:
+    """Pull the opaque ``cursor`` token out of CourtListener's ``next`` URL.
+
+    CourtListener v4 search is cursor-paginated: each response carries a full
+    ``next`` URL whose ``cursor`` query param can be replayed to fetch the
+    following page. We surface just the token so clients don't have to parse
+    the URL themselves.
+
+    Args:
+        next_url: The ``next`` field from a CourtListener response, or None.
+
+    Returns:
+        The cursor token, or None when there is no next page.
+    """
+    if not next_url:
+        return None
+    try:
+        values = parse_qs(urlparse(next_url).query).get("cursor")
+        return values[0] if values else None
+    except Exception:  # pragma: no cover - defensive
+        return None
+
 
 async def _search_courtlistener(
     ctx: Context,
@@ -28,6 +56,7 @@ async def _search_courtlistener(
     order_by: str,
     limit: int,
     filters: dict[str, Any],
+    cursor: str | None = None,
 ) -> dict[str, Any]:
     """Execute a search against the CourtListener API.
 
@@ -37,14 +66,16 @@ async def _search_courtlistener(
         search_type: The CourtListener V4 API type parameter (e.g., 'o', 'd', 'p').
         q: The search query string.
         order_by: Sort order for results.
-        limit: Maximum number of results to return.
+        limit: Maximum number of results to return from the page (upper bound).
         filters: Dictionary of optional filter parameters.
+        cursor: Opaque pagination cursor from a previous response's ``next_cursor``.
 
     Returns:
-        dict: The search results as returned by the CourtListener API.
+        dict: The search results as returned by the CourtListener API, with an
+        added ``next_cursor`` field for pagination.
 
     Raises:
-        ValueError: If COURT_LISTENER_API_KEY is not found in environment variables.
+        ValueError: If no CourtListener API key is available.
         httpx.HTTPStatusError: If the API request fails.
 
     """
@@ -52,17 +83,19 @@ async def _search_courtlistener(
 
     headers = get_auth_headers(ctx)
 
+    # NOTE: CourtListener v4 search does NOT accept a per-request result-count
+    # param (the old `hit=<limit>` was a no-op). It returns a fixed-size page
+    # (~20) plus a cursor. We honor `limit` by truncating the page client-side
+    # and expose `next_cursor` for callers that want more.
     params: dict[str, str | int] = {
         "q": q,
         "order_by": order_by,
         "type": search_type,
     }
+    if cursor:
+        params["cursor"] = cursor
 
-    # Add limit (V4 uses 'hit' instead of 'limit')
-    if limit:
-        params["hit"] = limit
-
-    # Add optional filters (only non-empty/non-zero values)
+    # Add optional filters (only non-empty/non-zero/non-None values)
     for key, value in filters.items():
         if value:
             params[key] = value
@@ -77,6 +110,13 @@ async def _search_courtlistener(
             response.raise_for_status()
             data = response.json()
 
+        results = data.get("results")
+        if isinstance(results, list) and limit and len(results) > limit:
+            data["results"] = results[:limit]
+
+        # Surface the pagination cursor token for follow-up pages.
+        data["next_cursor"] = _extract_cursor(data.get("next"))
+
         await ctx.info(f"Found {data.get('count', 0)} {resource_type}")
         return data
 
@@ -88,34 +128,47 @@ async def _search_courtlistener(
         raise
 
 
-@search_server.tool()
+@search_server.tool(annotations=_READ_ONLY)
 async def opinions(
     q: Annotated[str, Field(description="Search query for full text of opinions")],
     ctx: Context,
     court: Annotated[
-        str, Field(description="Court ID filter (e.g., 'scotus', 'ca9')")
-    ] = "",
-    case_name: Annotated[str, Field(description="Filter by case name")] = "",
-    judge: Annotated[str, Field(description="Filter by judge name")] = "",
+        str | None, Field(description="Court ID filter (e.g., 'scotus', 'ca9')")
+    ] = None,
+    case_name: Annotated[str | None, Field(description="Filter by case name")] = None,
+    judge: Annotated[str | None, Field(description="Filter by judge name")] = None,
     filed_after: Annotated[
-        str, Field(description="Only show opinions filed after this date (YYYY-MM-DD)")
-    ] = "",
+        str | None,
+        Field(description="Only show opinions filed after this date (YYYY-MM-DD)"),
+    ] = None,
     filed_before: Annotated[
-        str, Field(description="Only show opinions filed before this date (YYYY-MM-DD)")
-    ] = "",
+        str | None,
+        Field(description="Only show opinions filed before this date (YYYY-MM-DD)"),
+    ] = None,
     cited_gt: Annotated[
-        int, Field(description="Minimum number of times opinion has been cited", ge=0)
-    ] = 0,
+        int | None,
+        Field(description="Minimum number of times opinion has been cited", ge=0),
+    ] = None,
     cited_lt: Annotated[
-        int, Field(description="Maximum number of times opinion has been cited", ge=0)
-    ] = 0,
+        int | None,
+        Field(description="Maximum number of times opinion has been cited", ge=0),
+    ] = None,
     order_by: Annotated[
         str,
         Field(description="Sort by 'score desc', 'dateFiled desc', or 'dateFiled asc'"),
     ] = "score desc",
     limit: Annotated[
-        int, Field(description="Maximum results to return", ge=1, le=100)
+        int,
+        Field(
+            description="Max results from this page (upper bound; CL pages ~20)",
+            ge=1,
+            le=100,
+        ),
     ] = 20,
+    cursor: Annotated[
+        str | None,
+        Field(description="Pagination cursor from a prior response's next_cursor"),
+    ] = None,
 ) -> dict[str, Any]:
     """Search case law opinion clusters with nested Opinion documents in CourtListener."""
     return await _search_courtlistener(
@@ -125,6 +178,7 @@ async def opinions(
         q=q,
         order_by=order_by,
         limit=limit,
+        cursor=cursor,
         filters={
             "court": court,
             "case_name": case_name,
@@ -137,31 +191,42 @@ async def opinions(
     )
 
 
-@search_server.tool()
+@search_server.tool(annotations=_READ_ONLY)
 async def dockets(
     q: Annotated[str, Field(description="Search query for docket text")],
     ctx: Context,
     court: Annotated[
-        str, Field(description="Court ID filter (e.g., 'scotus', 'ca9')")
-    ] = "",
-    case_name: Annotated[str, Field(description="Filter by case name")] = "",
+        str | None, Field(description="Court ID filter (e.g., 'scotus', 'ca9')")
+    ] = None,
+    case_name: Annotated[str | None, Field(description="Filter by case name")] = None,
     docket_number: Annotated[
-        str, Field(description="Specific docket number to search for")
-    ] = "",
+        str | None, Field(description="Specific docket number to search for")
+    ] = None,
     date_filed_after: Annotated[
-        str, Field(description="Filter dockets filed after this date (YYYY-MM-DD)")
-    ] = "",
+        str | None,
+        Field(description="Filter dockets filed after this date (YYYY-MM-DD)"),
+    ] = None,
     date_filed_before: Annotated[
-        str, Field(description="Filter dockets filed before this date (YYYY-MM-DD)")
-    ] = "",
-    party_name: Annotated[str, Field(description="Filter by party name")] = "",
+        str | None,
+        Field(description="Filter dockets filed before this date (YYYY-MM-DD)"),
+    ] = None,
+    party_name: Annotated[str | None, Field(description="Filter by party name")] = None,
     order_by: Annotated[
         str,
         Field(description="Sort by 'score desc', 'dateFiled desc', or 'dateFiled asc'"),
     ] = "score desc",
     limit: Annotated[
-        int, Field(description="Maximum results to return", ge=1, le=100)
+        int,
+        Field(
+            description="Max results from this page (upper bound; CL pages ~20)",
+            ge=1,
+            le=100,
+        ),
     ] = 20,
+    cursor: Annotated[
+        str | None,
+        Field(description="Pagination cursor from a prior response's next_cursor"),
+    ] = None,
 ) -> dict[str, Any]:
     """Search federal cases (dockets) from PACER in CourtListener."""
     return await _search_courtlistener(
@@ -171,6 +236,7 @@ async def dockets(
         q=q,
         order_by=order_by,
         limit=limit,
+        cursor=cursor,
         filters={
             "court": court,
             "case_name": case_name,
@@ -182,31 +248,42 @@ async def dockets(
     )
 
 
-@search_server.tool()
+@search_server.tool(annotations=_READ_ONLY)
 async def dockets_with_documents(
     q: Annotated[str, Field(description="Search query for federal cases")],
     ctx: Context,
     court: Annotated[
-        str, Field(description="Court ID filter (e.g., 'scotus', 'ca9')")
-    ] = "",
-    case_name: Annotated[str, Field(description="Filter by case name")] = "",
+        str | None, Field(description="Court ID filter (e.g., 'scotus', 'ca9')")
+    ] = None,
+    case_name: Annotated[str | None, Field(description="Filter by case name")] = None,
     docket_number: Annotated[
-        str, Field(description="Specific docket number to search for")
-    ] = "",
+        str | None, Field(description="Specific docket number to search for")
+    ] = None,
     date_filed_after: Annotated[
-        str, Field(description="Filter dockets filed after this date (YYYY-MM-DD)")
-    ] = "",
+        str | None,
+        Field(description="Filter dockets filed after this date (YYYY-MM-DD)"),
+    ] = None,
     date_filed_before: Annotated[
-        str, Field(description="Filter dockets filed before this date (YYYY-MM-DD)")
-    ] = "",
-    party_name: Annotated[str, Field(description="Filter by party name")] = "",
+        str | None,
+        Field(description="Filter dockets filed before this date (YYYY-MM-DD)"),
+    ] = None,
+    party_name: Annotated[str | None, Field(description="Filter by party name")] = None,
     order_by: Annotated[
         str,
         Field(description="Sort by 'score desc', 'dateFiled desc', or 'dateFiled asc'"),
     ] = "score desc",
     limit: Annotated[
-        int, Field(description="Maximum results to return", ge=1, le=100)
+        int,
+        Field(
+            description="Max results from this page (upper bound; CL pages ~20)",
+            ge=1,
+            le=100,
+        ),
     ] = 20,
+    cursor: Annotated[
+        str | None,
+        Field(description="Pagination cursor from a prior response's next_cursor"),
+    ] = None,
 ) -> dict[str, Any]:
     """Search federal cases (dockets) with up to three nested documents.
 
@@ -219,6 +296,7 @@ async def dockets_with_documents(
         q=q,
         order_by=order_by,
         limit=limit,
+        cursor=cursor,
         filters={
             "court": court,
             "case_name": case_name,
@@ -230,37 +308,48 @@ async def dockets_with_documents(
     )
 
 
-@search_server.tool()
+@search_server.tool(annotations=_READ_ONLY)
 async def recap_documents(
     q: Annotated[str, Field(description="Search query for RECAP filing documents")],
     ctx: Context,
     court: Annotated[
-        str, Field(description="Court ID filter (e.g., 'scotus', 'ca9')")
-    ] = "",
-    case_name: Annotated[str, Field(description="Filter by case name")] = "",
+        str | None, Field(description="Court ID filter (e.g., 'scotus', 'ca9')")
+    ] = None,
+    case_name: Annotated[str | None, Field(description="Filter by case name")] = None,
     docket_number: Annotated[
-        str, Field(description="Specific docket number to search for")
-    ] = "",
+        str | None, Field(description="Specific docket number to search for")
+    ] = None,
     document_number: Annotated[
-        str, Field(description="Specific document number to search for")
-    ] = "",
+        str | None, Field(description="Specific document number to search for")
+    ] = None,
     attachment_number: Annotated[
-        str, Field(description="Specific attachment number to search for")
-    ] = "",
+        str | None, Field(description="Specific attachment number to search for")
+    ] = None,
     filed_after: Annotated[
-        str, Field(description="Filter documents filed after this date (YYYY-MM-DD)")
-    ] = "",
+        str | None,
+        Field(description="Filter documents filed after this date (YYYY-MM-DD)"),
+    ] = None,
     filed_before: Annotated[
-        str, Field(description="Filter documents filed before this date (YYYY-MM-DD)")
-    ] = "",
-    party_name: Annotated[str, Field(description="Filter by party name")] = "",
+        str | None,
+        Field(description="Filter documents filed before this date (YYYY-MM-DD)"),
+    ] = None,
+    party_name: Annotated[str | None, Field(description="Filter by party name")] = None,
     order_by: Annotated[
         str,
         Field(description="Sort by 'score desc', 'dateFiled desc', or 'dateFiled asc'"),
     ] = "score desc",
     limit: Annotated[
-        int, Field(description="Maximum results to return", ge=1, le=100)
+        int,
+        Field(
+            description="Max results from this page (upper bound; CL pages ~20)",
+            ge=1,
+            le=100,
+        ),
     ] = 20,
+    cursor: Annotated[
+        str | None,
+        Field(description="Pagination cursor from a prior response's next_cursor"),
+    ] = None,
 ) -> dict[str, Any]:
     """Search federal filing documents from PACER in the RECAP archive."""
     return await _search_courtlistener(
@@ -270,6 +359,7 @@ async def recap_documents(
         q=q,
         order_by=order_by,
         limit=limit,
+        cursor=cursor,
         filters={
             "court": court,
             "case_name": case_name,
@@ -283,21 +373,21 @@ async def recap_documents(
     )
 
 
-@search_server.tool()
+@search_server.tool(annotations=_READ_ONLY)
 async def audio(
     q: Annotated[str, Field(description="Search query for oral argument audio")],
     ctx: Context,
     court: Annotated[
-        str, Field(description="Court ID filter (e.g., 'scotus', 'ca9')")
-    ] = "",
-    case_name: Annotated[str, Field(description="Filter by case name")] = "",
-    judge: Annotated[str, Field(description="Filter by judge name")] = "",
+        str | None, Field(description="Court ID filter (e.g., 'scotus', 'ca9')")
+    ] = None,
+    case_name: Annotated[str | None, Field(description="Filter by case name")] = None,
+    judge: Annotated[str | None, Field(description="Filter by judge name")] = None,
     argued_after: Annotated[
-        str, Field(description="Filter arguments after this date (YYYY-MM-DD)")
-    ] = "",
+        str | None, Field(description="Filter arguments after this date (YYYY-MM-DD)")
+    ] = None,
     argued_before: Annotated[
-        str, Field(description="Filter arguments before this date (YYYY-MM-DD)")
-    ] = "",
+        str | None, Field(description="Filter arguments before this date (YYYY-MM-DD)")
+    ] = None,
     order_by: Annotated[
         str,
         Field(
@@ -305,8 +395,17 @@ async def audio(
         ),
     ] = "score desc",
     limit: Annotated[
-        int, Field(description="Maximum results to return", ge=1, le=100)
+        int,
+        Field(
+            description="Max results from this page (upper bound; CL pages ~20)",
+            ge=1,
+            le=100,
+        ),
     ] = 20,
+    cursor: Annotated[
+        str | None,
+        Field(description="Pagination cursor from a prior response's next_cursor"),
+    ] = None,
 ) -> dict[str, Any]:
     """Search oral argument audio recordings in CourtListener."""
     return await _search_courtlistener(
@@ -316,6 +415,7 @@ async def audio(
         q=q,
         order_by=order_by,
         limit=limit,
+        cursor=cursor,
         filters={
             "court": court,
             "case_name": case_name,
@@ -326,32 +426,43 @@ async def audio(
     )
 
 
-@search_server.tool()
+@search_server.tool(annotations=_READ_ONLY)
 async def people(
     q: Annotated[
         str, Field(description="Search query for judges and legal professionals")
     ],
     ctx: Context,
-    name: Annotated[str, Field(description="Filter by person's name")] = "",
+    name: Annotated[str | None, Field(description="Filter by person's name")] = None,
     position_type: Annotated[
-        str, Field(description="Filter by position type (e.g., 'jud' for judge)")
-    ] = "",
+        str | None, Field(description="Filter by position type (e.g., 'jud' for judge)")
+    ] = None,
     political_affiliation: Annotated[
-        str, Field(description="Filter by political affiliation")
-    ] = "",
-    school: Annotated[str, Field(description="Filter by school attended")] = "",
+        str | None, Field(description="Filter by political affiliation")
+    ] = None,
+    school: Annotated[
+        str | None, Field(description="Filter by school attended")
+    ] = None,
     appointed_by: Annotated[
-        str, Field(description="Filter by appointing authority")
-    ] = "",
+        str | None, Field(description="Filter by appointing authority")
+    ] = None,
     selection_method: Annotated[
-        str, Field(description="Filter by selection method")
-    ] = "",
+        str | None, Field(description="Filter by selection method")
+    ] = None,
     order_by: Annotated[
         str, Field(description="Sort by 'score desc' or 'name asc'")
     ] = "score desc",
     limit: Annotated[
-        int, Field(description="Maximum results to return", ge=1, le=100)
+        int,
+        Field(
+            description="Max results from this page (upper bound; CL pages ~20)",
+            ge=1,
+            le=100,
+        ),
     ] = 20,
+    cursor: Annotated[
+        str | None,
+        Field(description="Pagination cursor from a prior response's next_cursor"),
+    ] = None,
 ) -> dict[str, Any]:
     """Search judges and legal professionals in the CourtListener database."""
     return await _search_courtlistener(
@@ -361,6 +472,7 @@ async def people(
         q=q,
         order_by=order_by,
         limit=limit,
+        cursor=cursor,
         filters={
             "name": name,
             "position_type": position_type,

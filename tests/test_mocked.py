@@ -124,7 +124,12 @@ class TestMockedSearchTools:
     @respx.mock
     async def test_search_empty_results(self, client: Client[Any]) -> None:
         """Test search returning no results."""
-        empty_response: dict[str, Any] = {"count": 0, "next": None, "previous": None, "results": []}
+        empty_response: dict[str, Any] = {
+            "count": 0,
+            "next": None,
+            "previous": None,
+            "results": [],
+        }
         respx.get("https://www.courtlistener.com/api/rest/v4/search/").mock(
             return_value=httpx.Response(200, json=empty_response)
         )
@@ -199,7 +204,8 @@ class TestErrorHandling:
         """Test handling of 403 Forbidden response."""
         respx.get("https://www.courtlistener.com/api/rest/v4/opinions/123/").mock(
             return_value=httpx.Response(
-                403, json={"detail": "You do not have permission to perform this action."}
+                403,
+                json={"detail": "You do not have permission to perform this action."},
             )
         )
 
@@ -226,7 +232,9 @@ class TestErrorHandling:
         respx.get("https://www.courtlistener.com/api/rest/v4/search/").mock(
             return_value=httpx.Response(
                 429,
-                json={"detail": "Request was throttled. Expected available in 60 seconds."},
+                json={
+                    "detail": "Request was throttled. Expected available in 60 seconds."
+                },
                 headers={"Retry-After": "60"},
             )
         )
@@ -333,7 +341,8 @@ class TestMockedCitationTools:
         """Test citation format verification with invalid citation."""
         async with client:
             result = await client.call_tool(
-                "citation_verify_citation_format", {"citation": "not a real citation xyz"}
+                "citation_verify_citation_format",
+                {"citation": "not a real citation xyz"},
             )
 
             assert not result.is_error

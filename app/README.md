@@ -1,127 +1,112 @@
-# CourtListener MCP Server v2.0
+# CourtListener MCP Server - tool reference
 
-A comprehensive Model Context Protocol (MCP) server for accessing the CourtListener API v4 and eCFR, providing powerful legal and regulatory research capabilities optimized for Large Language Model (LLM) interactions.
+A Model Context Protocol (MCP) server exposing the CourtListener API v4 (US case
+law, dockets/RECAP, judges, oral arguments, citations) plus the eCFR API (US
+federal regulations), optimized for LLM use.
 
-> **Latest Update (June 2025):** All MCP tools and modules are documented. Pydantic v2 compatibility, type annotations, and import structure are up-to-date. Server passes all lint checks and includes a comprehensive test suite.
+For install, hosting, and auth, see the [top-level README](../README.md). This
+file is the per-tool parameter reference.
 
-## Code Architecture Overview
+## Architecture
 
-- **`app/server.py`**: Main FastMCP server, imports all tool modules and sets up logging
-- **`app/tools/`**: Contains all MCP tool implementations:
-  - `search.py`: Search tools (opinions, dockets, audio, people, RECAP, regulations)
-  - `get.py`: Get tools (opinion, docket, audio, court, person, cluster)
-  - `citation.py`: Citation lookup, parsing, batch, and enhanced tools
-- **`app/models.py`**: Pydantic models for data validation
-- **`app/config.py`**: Configuration and environment variable management
-- **`app/utils.py``: Utility functions (XML/JSON conversion, etc.)
-- **`app/logs/`**: Server logs
+- **`app/server.py`** - FastMCP entrypoint. Mounts the four tool sub-servers
+  under their namespaces (`search`, `get`, `citation`, `ecfr`), registers the
+  rate-limiting middleware, exposes a `/health` HTTP route and a `status` tool.
+- **`app/config.py`** - settings (env + `.env`), BYOK/env auth resolution, and
+  the shared `httpx` client accessor.
+- **`app/tools/search.py`** - CourtListener search tools (`search_*`).
+- **`app/tools/get.py`** - CourtListener by-ID retrieval tools (`get_*`).
+- **`app/tools/citation.py`** - citation lookup/parse/verify tools (`citation_*`),
+  combining the CourtListener citation-lookup API with the local `citeurl` library.
+- **`app/tools/ecfr.py`** - eCFR federal-regulations tools (`ecfr_*`).
 
-## Server Transport
+All tools are read-only (`readOnlyHint: true`). Tool names are namespaced, so a
+tool defined as `opinions` in the search sub-server is exposed as `search_opinions`.
 
-The server is configured to use **streamable-http** transport by default, making it accessible via HTTP at `http://localhost:8000/mcp/`. This allows:
+## Transport
 
-- **HTTP-based access**: Standard HTTP requests for web-based deployments
-- **External connections**: Server binds to `0.0.0.0` for network accessibility
-- **RESTful interface**: Modern HTTP transport for better integration
-- **Production ready**: Suitable for containerized and cloud deployments
-
-To connect to the server programmatically:
+Default transport is `stdio` (best for local CLI clients like Claude Desktop).
+Run `--transport http` for a network-accessible Streamable HTTP server at
+`http://<host>:<port>/mcp/`. `sse` is supported for legacy clients.
 
 ```python
 from fastmcp import Client
 
 async with Client("http://localhost:8000/mcp/") as client:
-    result = await client.call_tool("status")
+    result = await client.call_tool("status", {})
 ```
 
-## Modules and Purposes
+## CourtListener search tools
 
-- **server.py**: FastMCP entrypoint, imports all tool servers
-- **tools/search.py**: Implements search tools for opinions, dockets, audio, people, RECAP, regulations
-- **tools/get.py**: Implements get tools for detailed entity retrieval (opinion, docket, audio, court, person, cluster)
-- **tools/citation.py**: Implements citation lookup, parsing, batch, and enhanced tools
-- **models.py**: Pydantic models for API responses and validation
-- **config.py**: Loads environment and configures logging
-- **utils.py**: XML/JSON conversion, helpers
+Each returns the raw CourtListener page plus a `next_cursor` token. Pass `cursor`
+to fetch the next page. `limit` (1-100, default 20) is an upper bound on the
+returned page. `q` is required; all filters are optional.
 
-## MCP Tools and Parameters
+| Tool | Key parameters |
+|---|---|
+| `search_opinions` | `q`, court, case_name, judge, filed_after, filed_before, cited_gt, cited_lt, order_by, limit, cursor |
+| `search_dockets` | `q`, court, case_name, docket_number, date_filed_after, date_filed_before, party_name, order_by, limit, cursor |
+| `search_dockets_with_documents` | `q`, court, case_name, docket_number, date_filed_after, date_filed_before, party_name, order_by, limit, cursor |
+| `search_recap_documents` | `q`, court, case_name, docket_number, document_number, attachment_number, filed_after, filed_before, party_name, order_by, limit, cursor |
+| `search_audio` | `q`, court, case_name, judge, argued_after, argued_before, order_by, limit, cursor |
+| `search_people` | `q`, name, position_type, political_affiliation, school, appointed_by, selection_method, order_by, limit, cursor |
 
-| Tool Name                    | Parameters (all optional unless noted)                                                                 | Description                                      |
-|------------------------------|------------------------------------------------------------------------------------------------------|--------------------------------------------------|
-| search_opinions              | q (required), court, case_name, judge, filed_after, filed_before, cited_gt, cited_lt, order_by, limit | Search legal opinions                            |
-| search_dockets               | q (required), court, case_name, docket_number, date_filed_after, date_filed_before, party_name, order_by, limit | Search court dockets                             |
-| search_dockets_with_documents| q (required), court, case_name, docket_number, date_filed_after, date_filed_before, party_name, order_by, limit | Search dockets with nested documents             |
-| search_recap_documents       | q (required), court, case_name, docket_number, document_number, attachment_number, filed_after, filed_before, party_name, order_by, limit | Search RECAP filing documents                    |
-| search_audio                 | q (required), court, case_name, judge, argued_after, argued_before, order_by, limit                  | Search oral argument audio                       |
-| search_people                | q (required), name, position_type, political_affiliation, school, appointed_by, selection_method, order_by, limit | Search judges and legal professionals            |
-| get_opinion                  | opinion_id (required)                                                                                 | Get detailed opinion information                 |
-| get_docket                   | docket_id (required)                                                                                  | Get detailed docket information                  |
-| get_audio                    | audio_id (required)                                                                                   | Get oral argument audio information              |
-| get_court                    | court_id (required)                                                                                   | Get detailed court information                   |
-| get_person                   | person_id (required)                                                                                  | Get detailed person/judge information            |
-| get_cluster                  | cluster_id (required)                                                                                 | Get opinion cluster information                  |
-| lookup_citation              | citation (required)                                                                                   | Look up legal citation                           |
-| batch_lookup_citations       | citations (list, required)                                                                            | Batch lookup of multiple citations               |
-| verify_citation_format       | citation (required)                                                                                   | Verify citation format using citeurl             |
-| parse_citation_with_citeurl  | citation (required), broad (bool)                                                                     | Parse and analyze legal citations                |
-| extract_citations_from_text  | text (required)                                                                                       | Extract all legal citations from a block of text |
-| enhanced_citation_lookup     | citation (required), include_courtlistener (bool)                                                     | Enhanced citation lookup with citeurl & CL data  |
-| list_titles                  | (none)                                                                                                | List all CFR titles                              |
-| list_agencies                | (none)                                                                                                | List all federal agencies                        |
-| search_regulations           | query (required), max_results                                                                         | Search federal regulations                       |
-| list_all_corrections         | correction_date                                                                                       | List all editorial corrections                   |
-| list_corrections_by_title    | title_number                                                                                          | List corrections for a specific title            |
-| get_search_suggestions       | partial_term, max_suggestions                                                                         | Get search term suggestions                      |
-| get_search_summary           | query                                                                                                 | Get aggregated search summary                    |
-| get_title_search_counts      | query                                                                                                 | Get search result counts by title                |
-| get_daily_search_counts      | query, start_date, end_date                                                                           | Get daily search counts                          |
-| get_ancestry                 | date, title_number, part_number, section_number                                                       | Get hierarchical ancestry path                   |
-| get_title_structure          | date, title_number                                                                                    | Get full title structure                         |
-| get_source_xml               | date, title, part, section                                                                            | Download source XML for regulation               |
-| get_source_json              | date, title, chapter, part                                                                            | Get regulatory content as JSON                   |
-| status, get_api_status, health_check | (none)                                                                                         | System and health checks                         |
+## CourtListener get tools
 
-## Usage Examples
+| Tool | Parameters |
+|---|---|
+| `get_opinion` | `opinion_id` (required) |
+| `get_docket` | `docket_id` (required) |
+| `get_audio` | `audio_id` (required) |
+| `get_court` | `court_id` (required, e.g. `scotus`) |
+| `get_person` | `person_id` (required) |
+| `get_cluster` | `cluster_id` (required) |
 
-### Search Legal Opinions
+## Citation tools
 
-```python
-search_opinions(q="Miranda rights", court="scotus", limit=5)
-```
+| Tool | Parameters | Notes |
+|---|---|---|
+| `citation_lookup_citation` | `citation` (required) | CourtListener citation-lookup API |
+| `citation_batch_lookup_citations` | `citations` (list, 1-100) | one batched request |
+| `citation_verify_citation_format` | `citation` (required) | local `citeurl`, no API call |
+| `citation_parse_citation_with_citeurl` | `citation` (required), `broad` (bool) | local `citeurl` |
+| `citation_extract_citations_from_text` | `text` (required) | local `citeurl` |
+| `citation_enhanced_citation_lookup` | `citation` (required), `include_courtlistener` (bool) | `citeurl` + CourtListener |
 
-### Get Specific Opinion Details
+## eCFR tools (federal regulations, ecfr.gov, no key required)
 
-```python
-get_opinion(opinion_id="12345")
-```
+| Tool | Parameters | eCFR endpoint |
+|---|---|---|
+| `ecfr_list_titles` | (none) | versioner `titles` |
+| `ecfr_get_title_versions` | `title` | versioner `versions` |
+| `ecfr_get_title_structure` | `title`, `date` | versioner `structure` |
+| `ecfr_get_ancestry` | `title`, `date`, part, section | versioner `ancestry` |
+| `ecfr_get_source_xml` | `title`, `date`, part, section, subtitle, chapter, subchapter, subpart, appendix | versioner `full` (XML) |
+| `ecfr_list_agencies` | (none) | admin `agencies` |
+| `ecfr_list_all_corrections` | title, date | admin `corrections` |
+| `ecfr_list_corrections_by_title` | `title` | admin `corrections/title` |
+| `ecfr_search_regulations` | `query`, title, agency_slugs, date, per_page, page, order | search `results` |
+| `ecfr_get_search_count` | `query`, title, agency_slugs, date | search `count` |
+| `ecfr_get_search_summary` | `query`, title, agency_slugs, date | search `summary` |
+| `ecfr_get_title_search_counts` | `query`, date | search `counts/titles` |
+| `ecfr_get_daily_search_counts` | `query`, date | search `counts/daily` |
+| `ecfr_get_hierarchy_search_counts` | `query`, date | search `counts/hierarchy` |
+| `ecfr_get_search_suggestions` | `query` | search `suggestions` |
 
-### Search Court Cases
+Dates are `YYYY-MM-DD` snapshot dates; CFR titles are numbered 1-50. For
+`ecfr_get_source_xml`, pass a `part` or `section` to scope the request -
+fetching a whole large title at once can time out upstream.
 
-```python
-search_dockets(q="intellectual property", court="ca9", date_filed_after="2020-01-01")
-```
+## System
 
-### List Available Courts
+| Tool | Parameters | Description |
+|---|---|---|
+| `status` | (none) | Server status, version, transport, uptime, and system metrics. |
 
-```python
-search_people(q="", position_type="jud")
-```
+A plain HTTP `GET /health` liveness route is also exposed (used by Docker/Dokploy),
+separate from the MCP tools.
 
-### Extract Citations from Text
+## See also
 
-```python
-extract_citations_from_text(text="See 410 U.S. 113 and 42 USC § 1988.")
-```
-
-## Common Use Cases
-
-- Legal research by topic, court, or judge
-- Citation verification and lookup
-- Regulatory content retrieval and analysis
-- Bulk metadata extraction for LLMs
-
-## See Also
-
-- [../README.md](../README.md) — Main project documentation
-- [tests/README.md](../tests/README.md) — Test suite documentation
-- [context.json](../context.json) — Project context metadata
+- [../README.md](../README.md) - install, hosting, auth, configuration
+- [tests/README.md](../tests/README.md) - test suite
