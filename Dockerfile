@@ -24,6 +24,11 @@ FROM python:3.12-slim
 # Set working directory
 WORKDIR /opt/courtlistener
 
+# curl is required by the container/orchestrator health check
+# (`curl -f http://localhost:8000/health`). The slim base image has none.
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
 # Create non-root user
 RUN groupadd -r courtlistener && useradd -r -g courtlistener -m courtlistener
 
@@ -52,9 +57,13 @@ EXPOSE 8000
 
 # Labels for container metadata
 LABEL org.opencontainers.image.title="CourtListener MCP Server" \
-      org.opencontainers.image.description="MCP server providing LLM access to CourtListener legal database" \
-      org.opencontainers.image.version="0.1.0" \
-      org.opencontainers.image.source="https://github.com/Travis-Prall/court-listener-mcp"
+      org.opencontainers.image.description="MCP server providing LLM access to the CourtListener legal database and eCFR federal regulations" \
+      org.opencontainers.image.version="0.2.0" \
+      org.opencontainers.image.source="https://github.com/Vaquill-AI/courtlistener-mcp"
+
+# Container-level health check (mirrors the orchestrator's /health probe)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+  CMD curl -f http://localhost:8000/health || exit 1
 
 # Default to HTTP transport for container use, bound to all interfaces
 # Override with MCP_TRANSPORT=stdio for CLI integration
