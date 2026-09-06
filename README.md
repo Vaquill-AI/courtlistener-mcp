@@ -22,6 +22,8 @@ server if you want: **eCFR federal-regulations tools** (the official server has
 none), simple **BYOK header** auth (no OAuth dance), or a self-hosted/embeddable
 Python server. The two are complementary.
 
+[![Discord](https://img.shields.io/badge/Discord-Join%20the%20community-5865F2?logo=discord&logoColor=white)](https://discord.gg/GQtnwxf8nQ)
+
 ## Use the hosted endpoint (no install)
 
 The Vaquill team runs a public instance for the community:
@@ -223,3 +225,7 @@ uv run mypy app/
 
 CourtListener data is provided by the [Free Law Project](https://free.law/)
 under their respective terms. eCFR data is from [ecfr.gov](https://www.ecfr.gov).
+
+## Community
+
+Questions, ideas, or want to contribute? Join the Vaquill community on [Discord](https://discord.gg/GQtnwxf8nQ).
